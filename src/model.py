@@ -213,40 +213,91 @@ class CausalTransformerBlock(nn.Module):
 # ===== Downsampling Convolutions =============================================
 
 class BoundaryAwareDownConv(nn.Module):
-	def __init__(self, d_model, space_id):
+	def __init__(self, d_model, space_id, boundary_ids=None):
 			super().__init__()
 			self.space_id = space_id
+			# all token ids that should trigger a boundary but avoid being pooled
+			self.boundary_ids = set(boundary_ids) if boundary_ids else {space_id}
 			# learned projection applied after pooling
 			# lets the model transform the raw mean-pooled vector
 			self.projection = nn.Linear(d_model, d_model)
 			self.norm = nn.LayerNorm(d_model)
 
 	def forward(self, x, input_ids):
-		# x shape: 			(B, D, T)
+		# x shape: 			(B, T, D)
 		# input_ids shape:  (B, T)
-		B, D, T = x.shape
-
+		B, T, D = x.shape
 		word_sequences = []
 
-		for b in range(B): 
-			# find all positions with <SPACE> tokens in this sequence
-			space_positions = (input_ids[b] == self.space_id).nonzero(as_tuple=True)[0].tolist()
-
+		for b in range(B):
+			ids = input_ids[b].tolist()
 			segments = []
-			prev = 0 # start of current word segment
+			current_segment = []     # accumulates phoneme hidden states
 
-			for pos in space_positions:
-				if pos > prev:
-					# pool all phonemes from prev up to (but not including) the space
-					# causality: we emit the word vector AT the space position, which 
-					# means we consider only phonemes we've already observed
-					segment = x[b, prev:pos, :]			# (seg_len, D)
-					pooled = segment.mean(dim=0)		# (D,)
-					segments.append(pooled)
+			for t in range(T):
+				if ids[t] in self.boundary_ids:
+					# emit whatever we've accumulated so far
+					if current_segment:
+						stacked = torch.stack(current_segment, dim=0)  # (seg_len, D)
+						segments.append(stacked.mean(dim=0))		   # (D,)
+						current_segment = []
+					# boundary token itself is never pooled - just skip it!
+				else:
+					current_segment.append(x[b, t, :])
 
-				prev = pos + 1
+			# flush any remaining phonemes at end of sequence
+			if current_segment:
+				stacked = torch.stack(current_segment, dim=0)
+				segments.append(stacked.mean(dim=0))
+
+			word_sequences.append(torch.stack(segments, dim=0))        # (W, D)
+
+		# --- pad to max word count in this batch ----------------------------------
+		max_words = max(ws.shape[0] for ws in word_sequences)
+		padded = torch.zeros(B, max_words, D, device=x.device)
+		word_mask = torch.zeros(B, max_words, device=x.device)
+
+		for b, word_seq in enumerate(word_sequences):
+			W = word_seq.shape[0]
+			padded[b, :W, :] = word_seq
+			word_mask[b, :W] = 1.0         # 1 for real words, 0 for padding
+
+		out = self.projection(padded)
+		out = self.norm(out)
+
+		return out, word_mask              # expect (B, W, D), (B, W)
 
 
+if __name__ == "__main__":
+	# simulate small vocab with space_id = 5, and other dummy ids
+	space_id = 5
+	sos_id = 2
+	eos_id = 3
+	comma_id = 6
+	boundary_ids = [space_id, sos_id, eos_id, comma_id]
+	d_model = 256
+	
+
+	downsampler = BoundaryAwareDownConv(d_model, space_id, boundary_ids)
+	downsampler.eval()
+
+	# set up dummy input_ids with spaces at known positions
+	# sequence 0: [<SOS>, p, p, <SPACE>, p, p, <COMMA>, p, p, <EOS>] -> 3 words
+	# sequence 1: [<SOS>, p, p, <SPACE>, p, p, p, <COMMA>, p, p, <SPACE>, p, p, <EOS>] -> 4 words
+	input_ids = torch.tensor([
+		[2, 1, 1, 5, 1, 1, 6, 1, 1, 5, 1, 3],
+		])
+	x = torch.randn(1, 12, d_model)
+
+	out, mask = downsampler(x, input_ids)
+
+	print(f"Input shape:      {x.shape}")     # (2, 12, 256)
+	print(f"Output shape:     {out.shape}")   # (2, 4, 256) -- padded to max words
+	print(f"Word mask:\n{mask}")              # 1s for real words, 0s for padding
+
+	# verify that sequences have expected number of words: seq 0 -> 4
+	assert mask[0].sum().item() == 4, "Sequence 0 should have 4 words"
+	print("Boundary downsampling test passed.")
 
 
 
