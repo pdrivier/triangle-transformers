@@ -27,7 +27,7 @@ from transcribe_dataset import stream_to_ipa_corpus
 class PhonemeDataset:
 	"""Pipeline for reading vocab file and prepares the dataset for the model to consume."""
 
-	def __init__(self, data_path = "data/", vocab_path="vocab/phoneme_vocab.json", corpus_path="raw/april_test_wikipedia_ipa.jsonl"): 
+	def __init__(self, data_path = "data/", vocab_path="vocab/phoneme_vocab.json", corpus_path="raw/wikipedia_ipa_50000.jsonl"): 
 		"""
 		Initialize the Dataset Class.
 
