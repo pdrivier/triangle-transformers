@@ -1,0 +1,8 @@
+# Large data files
+data/raw/*.json
+data/raw/*.jsonl
+Anaconda3-2024.10-1-MacOSX-arm64.sh
+*.sh
+*.pkg
+*.dmg
+
