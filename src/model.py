@@ -428,7 +428,13 @@ if __name__ == "__main__":
 	print(f"Padding isolation test passed: {padding_ok}")
 	print("WordTransformerBlock tests complete.")
 
+# ====== Boundary Aware Upsampling ========================
 
+class BoundaryAwareSplitting(nn.Module):
+	def __init__(self, space_id, boundary_ids=None):
+		... # TODO: continue here
 
+	def forward(self, x, input_ids, word_mask):
+		... # TODO: needs filling out
 
 
