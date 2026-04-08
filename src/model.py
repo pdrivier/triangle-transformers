@@ -223,6 +223,8 @@ class BoundaryAwarePooling(nn.Module):
 			self.projection = nn.Linear(d_model, d_model)
 			self.norm = nn.LayerNorm(d_model)
 
+			# TODO: Consider replacing nn.Linear with nn.Sequential(linear, gelu, linear)
+
 	def forward(self, x, input_ids):
 		# x shape: 			(B, T, D)
 		# input_ids shape:  (B, T)
@@ -268,36 +270,36 @@ class BoundaryAwarePooling(nn.Module):
 		return out, word_mask              # expect (B, W, D), (B, W)
 
 
-if __name__ == "__main__":
-	# simulate small vocab with space_id = 5, and other dummy ids
-	space_id = 5
-	sos_id = 2
-	eos_id = 3
-	comma_id = 6
-	boundary_ids = [space_id, sos_id, eos_id, comma_id]
-	d_model = 256
+# if __name__ == "__main__":
+# 	# simulate small vocab with space_id = 5, and other dummy ids
+# 	space_id = 5
+# 	sos_id = 2
+# 	eos_id = 3
+# 	comma_id = 6
+# 	boundary_ids = [space_id, sos_id, eos_id, comma_id]
+# 	d_model = 256
 	
 
-	downsampler = BoundaryAwareDownConv(d_model, space_id, boundary_ids)
-	downsampler.eval()
+# 	downsampler = BoundaryAwareDownConv(d_model, space_id, boundary_ids)
+# 	downsampler.eval()
 
-	# set up dummy input_ids with spaces at known positions
-	# sequence 0: [<SOS>, p, p, <SPACE>, p, p, <COMMA>, p, p, <EOS>] -> 3 words
-	# sequence 1: [<SOS>, p, p, <SPACE>, p, p, p, <COMMA>, p, p, <SPACE>, p, p, <EOS>] -> 4 words
-	input_ids = torch.tensor([
-		[2, 1, 1, 5, 1, 1, 6, 1, 1, 5, 1, 3],
-		])
-	x = torch.randn(1, 12, d_model)
+# 	# set up dummy input_ids with spaces at known positions
+# 	# sequence 0: [<SOS>, p, p, <SPACE>, p, p, <COMMA>, p, p, <EOS>] -> 3 words
+# 	# sequence 1: [<SOS>, p, p, <SPACE>, p, p, p, <COMMA>, p, p, <SPACE>, p, p, <EOS>] -> 4 words
+# 	input_ids = torch.tensor([
+# 		[2, 1, 1, 5, 1, 1, 6, 1, 1, 5, 1, 3],
+# 		])
+# 	x = torch.randn(1, 12, d_model)
 
-	out, mask = downsampler(x, input_ids)
+# 	out, mask = downsampler(x, input_ids)
 
-	print(f"Input shape:      {x.shape}")     # (2, 12, 256)
-	print(f"Output shape:     {out.shape}")   # (2, 4, 256) -- padded to max words
-	print(f"Word mask:\n{mask}")              # 1s for real words, 0s for padding
+# 	print(f"Input shape:      {x.shape}")     # (2, 12, 256)
+# 	print(f"Output shape:     {out.shape}")   # (2, 4, 256) -- padded to max words
+# 	print(f"Word mask:\n{mask}")              # 1s for real words, 0s for padding
 
-	# verify that sequences have expected number of words: seq 0 -> 4
-	assert mask[0].sum().item() == 4, "Sequence 0 should have 4 words"
-	print("Boundary downsampling test passed.")
+# 	# verify that sequences have expected number of words: seq 0 -> 4
+# 	assert mask[0].sum().item() == 4, "Sequence 0 should have 4 words"
+# 	print("Boundary downsampling test passed.")
 
 # ===== Word-Level Transformer =============================================
 class WordTransformerBlock(nn.Module):
@@ -339,7 +341,9 @@ class WordTransformerBlock(nn.Module):
 		# --- padding mask: avoid attending to padded word positions ---
 		# nn.MultiheadAttention expects True where positions should be IGNORED
 		# word_mask has 1 for real and 0 for padding, so we need to invert it
-		padding_mask = (word_mask == 0) # (B, W) - True at padding positions now
+		padding_mask = (word_mask == 0)   # (B, W) now True at padding positions
+		padding_mask = padding_mask.to(torch.float)  # switch type to match attn mask, otherwise, get warning
+
 
 		# ---- self-attention with residual --------------
 		residual = x 
@@ -349,7 +353,7 @@ class WordTransformerBlock(nn.Module):
 			key = x,
 			value = x, 
 			attn_mask=causal_mask,
-			key_padding_mask=padding_mask
+			key_padding_mask = padding_mask,							
 			)
 		x = self.dropout(x)
 		x = x + residual
@@ -363,6 +367,66 @@ class WordTransformerBlock(nn.Module):
 
 		return x    # expect (B, W, D)
 
+if __name__ == "__main__":
+	d_model = 256
+	num_heads = 8
+	ffn_dim = 1024
+	B = 2
+
+	# simulate two sequences with different word counts
+	# seq 0 with 5 words, seq 1 with 3 words
+	# padded to max_words = 5
+	max_words = 5 
+	real_words = [5, 3]
+
+	block = WordTransformerBlock(d_model, num_heads, ffn_dim)
+	block.eval()
+
+	# ---- simulate word embeddings and mask ---------------
+	x = torch.randn(B, max_words, d_model)
+
+	word_mask = torch.zeros(B, max_words)
+	for b, n in enumerate(real_words):
+		word_mask[b, :n] = 1.0
+
+	print(f"Input shape:      {x.shape}")   # expect (2, 5, 256)
+	print(f"Word mask:\n{word_mask}")
+
+	# ---- basic forward pass ------------------------------
+	out = block(x, word_mask)
+	print(f"Output shape:     {out.shape}") # expect (2, 5, 256)
+	assert out.shape == (B, max_words, d_model), "Shape mismatch!"
+
+	# ---- causality test ----------------------------------
+	# modify word position t = 2, verify that positions 0 and 1 are unaffected
+	x_modified = x.clone()
+	x_modified[:, 2, :] = torch.randn(d_model)
+	out_modified = block(x_modified, word_mask)
+
+	causality_ok = torch.allclose(
+		out[:, :2, :],
+		out_modified[:, :2, :],
+		atol=1e-6
+		)
+	print(f"Causality test passed: {causality_ok}")
+
+	# ----- padding isolation test -------------------------
+	# the padded positions in seq 1 (pos 3 and 4) shouldn't influence
+	# the real word positiions (0, 1, 2) in this seq
+	# verify this by randomizing the padding positions and checking that 
+	# the real positions remain intact
+	x_noise_in_padding = x.clone()
+	x_noise_in_padding[1, 3:, :] = torch.randn(2, d_model)   # corrupt padding
+	out_noise = block(x_noise_in_padding, word_mask)
+
+	padding_ok = torch.allclose(
+		out[1, :3, :],
+		out_noise[1, :3, :],
+		atol=1e-6
+		)
+
+	print(f"Padding isolation test passed: {padding_ok}")
+	print("WordTransformerBlock tests complete.")
 
 
 
