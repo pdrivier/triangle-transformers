@@ -52,7 +52,7 @@ class PhonemeEmbedding(nn.Module):
 # 	print("Embedding block text passed.")
 
 
-# ===== Single Transformer Block   ========================================
+# ===== Phon-Level Transformer Block   ========================================
 # For first-pass phoneme contextualization, before any downsampling
 # this might end up needing to be a larger block of heads, to learn GOOD phoneme representations?
 
@@ -212,7 +212,7 @@ class CausalTransformerBlock(nn.Module):
 
 # ===== Downsampling Convolutions =============================================
 
-class BoundaryAwareDownConv(nn.Module):
+class BoundaryAwarePooling(nn.Module):
 	def __init__(self, d_model, space_id, boundary_ids=None):
 			super().__init__()
 			self.space_id = space_id
@@ -298,6 +298,71 @@ if __name__ == "__main__":
 	# verify that sequences have expected number of words: seq 0 -> 4
 	assert mask[0].sum().item() == 4, "Sequence 0 should have 4 words"
 	print("Boundary downsampling test passed.")
+
+# ===== Word-Level Transformer =============================================
+class WordTransformerBlock(nn.Module):
+	def __init__(self, d_model, num_heads, ffn_dim, dropout=0.1):
+		super().__init__()
+
+		#----- self-attention -------
+		self.attention = nn.MultiheadAttention(
+			embed_dim = d_model,
+			num_heads = num_heads,
+			dropout = dropout,
+			batch_first = True # expects (B, T, D) rather than (T, B, D)
+			)
+
+		##----- feed-forward network -----
+		self.ffn = nn.Sequential(
+			nn.Linear(d_model, ffn_dim),
+			nn.GELU(),
+			nn.Linear(ffn_dim,d_model)
+			)
+
+		#----- layer norms (pre-norm form) -----
+		self.norm1 = nn.LayerNorm(d_model)
+		self.norm2 = nn.LayerNorm(d_model)
+
+		#----- dropout -----
+		self.dropout = nn.Dropout(dropout)
+
+	def forward(self, x, word_mask):
+		# x shape: (B, W, D)
+		# word_mask shape: (B, W)  # 1 for real, 0 for padding
+		B, W, D = x.shape
+
+		# --- causal mask: avoid attending to future positions ------
+		causal_mask = nn.Transformer.generate_square_subsequent_mask(
+			W, device = x.device
+			)
+
+		# --- padding mask: avoid attending to padded word positions ---
+		# nn.MultiheadAttention expects True where positions should be IGNORED
+		# word_mask has 1 for real and 0 for padding, so we need to invert it
+		padding_mask = (word_mask == 0) # (B, W) - True at padding positions now
+
+		# ---- self-attention with residual --------------
+		residual = x 
+		x = self.norm1(x)
+		x, _ = self.attention(
+			query = x,
+			key = x,
+			value = x, 
+			attn_mask=causal_mask,
+			key_padding_mask=padding_mask
+			)
+		x = self.dropout(x)
+		x = x + residual
+
+		# ---- feed forward with residual -----------------
+		residual = x
+		x = self.norm2(x)
+		x = self.ffn(x)
+		x = self.dropout(x)
+		x = x + residual
+
+		return x    # expect (B, W, D)
+
 
 
 
