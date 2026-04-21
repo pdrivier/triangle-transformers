@@ -212,12 +212,15 @@ class CausalTransformerBlock(nn.Module):
 
 # ===== Downsampling Convolutions =============================================
 
-class BoundaryAwarePooling(nn.Module):
-	def __init__(self, d_model, space_id, boundary_ids=None):
+class BoundaryAwarePooler(nn.Module):
+	def __init__(self, d_model, space_id, 
+		boundary_ids=None,     # triggers split, then disappears
+		passthrough_ids=None): # kept as own word-level token for attention mechanism to learn
 			super().__init__()
 			self.space_id = space_id
 			# all token ids that should trigger a boundary but avoid being pooled
 			self.boundary_ids = set(boundary_ids) if boundary_ids else {space_id}
+			self.passthrough_ids = set(passthrough_ids) if passthrough_ids else set()
 			# learned projection applied after pooling
 			# lets the model transform the raw mean-pooled vector
 			self.projection = nn.Linear(d_model, d_model)
@@ -236,15 +239,28 @@ class BoundaryAwarePooling(nn.Module):
 			segments = []
 			current_segment = []     # accumulates phoneme hidden states
 
-			for t in range(T):
-				if ids[t] in self.boundary_ids:
-					# emit whatever we've accumulated so far
+			for t in range(T):   
+				if ids[t] in self.passthrough_ids:
+					# flush current phoneme segment first
 					if current_segment:
 						stacked = torch.stack(current_segment, dim=0)  # (seg_len, D)
 						segments.append(stacked.mean(dim=0))		   # (D,)
 						current_segment = []
-					# boundary token itself is never pooled - just skip it!
+					# then keep this token as its own word-level vector
+					segments.append(x[b, t, :])
+
+				elif ids[t] in self.boundary_ids:
+					# flush current segment, then disappear
+					if current_segment:
+						stacked = torch.stack(current_segment, dim = 0)
+						segments.append(stacked.mean(dim=0))
+						current_segment = []
+						# TODO: agh, can't tell if I want to keep or discard these! 
+						# will discard for now, but remove comment to keep
+						# segments.append(x[b, t, :])
+
 				else:
+					# regular phoneme, accumulate
 					current_segment.append(x[b, t, :])
 
 			# flush any remaining phonemes at end of sequence
@@ -280,7 +296,7 @@ class BoundaryAwarePooling(nn.Module):
 # 	d_model = 256
 	
 
-# 	downsampler = BoundaryAwareDownConv(d_model, space_id, boundary_ids)
+# 	downsampler = BoundaryAwarePooler(d_model, space_id, boundary_ids)
 # 	downsampler.eval()
 
 # 	# set up dummy input_ids with spaces at known positions
@@ -430,11 +446,51 @@ if __name__ == "__main__":
 
 # ====== Boundary Aware Upsampling ========================
 
-class BoundaryAwareSplitting(nn.Module):
-	def __init__(self, space_id, boundary_ids=None):
-		... # TODO: continue here
+class BoundaryAwareSplitter(nn.Module):
+	def __init__(self, d_model, boundary_ids):
+		super().__init__()
+		self.boundary_ids = set(boundary_ids)
+		self.projection = nn.Linear(d_model, d_model)
+		self.norm = nn.LayerNorm(d_model)
 
-	def forward(self, x, input_ids, word_mask):
-		... # TODO: needs filling out
+	def forward(self, word_embeddings, phoneme_skip, input_ids, word_mask):
+		# word_embeddings: (B, W, D)
+		# phoneme_skip: (B, T, D)
+		# input_ids: (B, T)
+
+		B, T, D = phoneme_skip.shape
+
+		out = torch.zeros(B, T, D, device = word_embeddings.device)
+
+		for b in range(B):
+			ids = input_ids[b].tolist()
+			word_idx = 0
+			prev_was_boundary = True # so first phoneme correctly starts word 0
+
+			for t in range(T):
+				if ids[t] in self.boundary_ids:
+					# boundary token: can grab directly from skip connection
+					# TODO: ALTHOUgh, think about whether you want to grab the word-contextualized 
+					# version instead of the phoneme-contextualized version?
+					out[b, t, :] = phoneme_skip[b, t, :]
+					if not prev_was_boundary: 
+						# just finished a word, so advance to next word embedding
+						word_idx += 1
+					prev_was_boundary = True
+
+				else: 
+					# real phoneme: word context + fine-grained phoneme identity
+					out[b, t, :] = word_embeddings[b, word_idx, :] \ + phoneme_skip[b, t, :]
+					prev_was_boundary =False
+
+		# learned projection to let model blend the two sources
+		out = self.projection(out)
+		out = self.norm(out)
+
+		return out  # (B, T, D)
 
 
+
+
+
+		
