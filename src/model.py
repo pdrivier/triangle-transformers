@@ -480,14 +480,69 @@ class BoundaryAwareSplitter(nn.Module):
 
 				else: 
 					# real phoneme: word context + fine-grained phoneme identity
-					out[b, t, :] = word_embeddings[b, word_idx, :] \ + phoneme_skip[b, t, :]
-					prev_was_boundary =False
+					out[b, t, :] = word_embeddings[b, word_idx, :] + phoneme_skip[b, t, :]
+					prev_was_boundary = False
 
 		# learned projection to let model blend the two sources
 		out = self.projection(out)
 		out = self.norm(out)
 
 		return out  # (B, T, D)
+
+if __name__ == "__main__":
+	d_model = 256
+	space_id = 5
+	sos_id = 2
+	eos_id = 3
+	boundary_ids = [space_id, sos_id, eos_id]
+
+	splitter = BoundaryAwareSplitter(d_model, boundary_ids)
+	splitter.eval()
+
+	# [SOS, p, p, SPACE, p, p, p, EOS]
+	# word 0 = positions 1, 2 - word 1 = positions 4,5,6
+	input_ids = torch.tensor([[2,1,1,5,1,1,1,3]])
+	B, T = input_ids.shape
+
+	# 2 words in the word sequence
+	word_embeddings = torch.randn(1,2,d_model)
+	phoneme_skip = torch.randn(1, T, d_model)
+
+
+	out = splitter(word_embeddings, phoneme_skip, input_ids)
+
+	print(f"Input shape:       {input_ids.shape}")       # (1, 8)
+	print(f"Word embeddings:   {word_embeddings.shape}") # (1,2,256)
+	print(f"Output shape:      {out.shape}")			 # (1, 8, 256)
+	assert out.shape == (B, T, d_model), "Shape mismatch!"
+
+	# --- verify boundary positions came purely from skip -------------
+	# at boundary positions, out = projection(skip), so changing
+	# word_embeddings should not affect those positions
+	word_embeddings_modified = word_embeddings.clone()
+	word_embeddings_modified[:, :, :] = torch.randn(d_model)
+	out_modified = splitter(word_embeddings_modified, phoneme_skip, input_ids)
+
+	boundary_positions = [0, 3, 7] # SOS, SPACE, EOS
+	for pos in boundar_positions:
+		boundary_ok = torch.allclose(
+			out[0, pos, :], out_modified[0, pos, :], atol=1e-6
+			)
+		print(f"Boundary isolation at position {pos}: {boundary_ok}")
+
+	# --- verify phoneme positions reflect word embeddings -------------
+	# changing word_embeddings SHOULD affect phoneme positions
+	phoneme_positions = [1, 2, 4, 5, 6]
+	for pos in phoneme_positions: 
+		phoneme_changed = not torch.allclose(
+			out[0, pos, :], out_modified[0, pos, :], atol=1e-6
+			)
+
+		print(f"Phoneme position {pos} reflects word embedding: {phoneme_changed}")
+
+	print("BoundaryAwareSplitter tests complete.")
+
+
 
 
 
