@@ -286,36 +286,36 @@ class BoundaryAwarePooler(nn.Module):
 		return out, word_mask              # expect (B, W, D), (B, W)
 
 
-# if __name__ == "__main__":
-# 	# simulate small vocab with space_id = 5, and other dummy ids
-# 	space_id = 5
-# 	sos_id = 2
-# 	eos_id = 3
-# 	comma_id = 6
-# 	boundary_ids = [space_id, sos_id, eos_id, comma_id]
-# 	d_model = 256
+if __name__ == "__main__":
+	# simulate small vocab with space_id = 5, and other dummy ids
+	space_id = 5
+	sos_id = 2
+	eos_id = 3
+	comma_id = 6
+	boundary_ids = [space_id, sos_id, eos_id, comma_id]
+	d_model = 256
 	
 
-# 	downsampler = BoundaryAwarePooler(d_model, space_id, boundary_ids)
-# 	downsampler.eval()
+	downsampler = BoundaryAwarePooler(d_model, space_id, boundary_ids)
+	downsampler.eval()
 
-# 	# set up dummy input_ids with spaces at known positions
-# 	# sequence 0: [<SOS>, p, p, <SPACE>, p, p, <COMMA>, p, p, <EOS>] -> 3 words
-# 	# sequence 1: [<SOS>, p, p, <SPACE>, p, p, p, <COMMA>, p, p, <SPACE>, p, p, <EOS>] -> 4 words
-# 	input_ids = torch.tensor([
-# 		[2, 1, 1, 5, 1, 1, 6, 1, 1, 5, 1, 3],
-# 		])
-# 	x = torch.randn(1, 12, d_model)
+	# set up dummy input_ids with spaces at known positions
+	# sequence 0: [<SOS>, p, p, <SPACE>, p, p, <COMMA>, p, p, <EOS>] -> 3 words
+	# sequence 1: [<SOS>, p, p, <SPACE>, p, p, p, <COMMA>, p, p, <SPACE>, p, p, <EOS>] -> 4 words
+	input_ids = torch.tensor([
+		[2, 1, 1, 5, 1, 1, 6, 1, 1, 5, 1, 3],
+		])
+	x = torch.randn(1, 12, d_model)
 
-# 	out, mask = downsampler(x, input_ids)
+	out, mask = downsampler(x, input_ids)
 
-# 	print(f"Input shape:      {x.shape}")     # (2, 12, 256)
-# 	print(f"Output shape:     {out.shape}")   # (2, 4, 256) -- padded to max words
-# 	print(f"Word mask:\n{mask}")              # 1s for real words, 0s for padding
+	print(f"Input shape:      {x.shape}")     # (2, 12, 256)
+	print(f"Output shape:     {out.shape}")   # (2, 4, 256) -- padded to max words
+	print(f"Word mask:\n{mask}")              # 1s for real words, 0s for padding
 
-# 	# verify that sequences have expected number of words: seq 0 -> 4
-# 	assert mask[0].sum().item() == 4, "Sequence 0 should have 4 words"
-# 	print("Boundary downsampling test passed.")
+	# verify that sequences have expected number of words: seq 0 -> 4
+	assert mask[0].sum().item() == 4, "Sequence 0 should have 4 words"
+	print("Boundary downsampling test passed.")
 
 # ===== Word-Level Transformer =============================================
 class WordTransformerBlock(nn.Module):
@@ -453,7 +453,7 @@ class BoundaryAwareSplitter(nn.Module):
 		self.projection = nn.Linear(d_model, d_model)
 		self.norm = nn.LayerNorm(d_model)
 
-	def forward(self, word_embeddings, phoneme_skip, input_ids, word_mask):
+	def forward(self, word_embeddings, phoneme_skip, input_ids):
 		# word_embeddings: (B, W, D)
 		# phoneme_skip: (B, T, D)
 		# input_ids: (B, T)
@@ -524,7 +524,7 @@ if __name__ == "__main__":
 	out_modified = splitter(word_embeddings_modified, phoneme_skip, input_ids)
 
 	boundary_positions = [0, 3, 7] # SOS, SPACE, EOS
-	for pos in boundar_positions:
+	for pos in boundary_positions:
 		boundary_ok = torch.allclose(
 			out[0, pos, :], out_modified[0, pos, :], atol=1e-6
 			)
@@ -541,6 +541,7 @@ if __name__ == "__main__":
 		print(f"Phoneme position {pos} reflects word embedding: {phoneme_changed}")
 
 	print("BoundaryAwareSplitter tests complete.")
+
 
 
 
