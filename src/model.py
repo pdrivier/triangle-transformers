@@ -543,6 +543,85 @@ if __name__ == "__main__":
 	print("BoundaryAwareSplitter tests complete.")
 
 
+class PhonemeLM(nn.Module):
+	def __init__(self, vocab_size, d_model, num_heads, ffn_dim,
+		max_seq_len, max_word_len, pad_id, space_id,
+		boundary_ids, passthrough_ids, dropout=0.1):
+	super().__init__()
+
+	# --- phoneme level --------------------------------------------------
+	self.embedding = PhonemeEmbedding(
+		vocab_size, d_model, max_seq_len, pad_id
+		)
+	self.early_transformer = CausalTransformerBlock(
+		d_model, num_heads, ffn_dim, dropout)
+
+	# --- downsampling --------------------------------------------------
+	self.pooler = BoundaryAwarePooler(
+		d_model, space_id, boundary_ids, passthrough_ids
+		)
+
+	# --- word level  ----------------------------------------------------
+	self.word_position_embeddings = nn.Embedding(max_word_len, d_model)
+	self.word_transformer = WordTransformerBlock(
+		d_model, num_heads, ffn_dim, dropout)
+
+	# --- upsampling -----------------------------------------------------
+	self.splitter = BoundaryAwareSplitter(d_model, boundary_ids)
+	self.phoneme_position_embeddings = nn.Embedding(max_seq_len, d_model)
+
+	# --- output head ---------------------------------------------------
+	self.output_norm = nn.LayerNorm(d_model)
+	self.unembedding = nn.Linear(d_model, vocab_size)
+
+
+	def forward(self, input_ids):
+		# input_ids shape: (B, T)
+		B, T = input_ids.shape
+
+		# --- phoneme level ---------------------------------------------
+		x = self.embedding(input_ids)						  # (B, T, D)
+		phoneme_skip = self.early_transformer(x)			  # (B, T, D)
+
+
+		# --- downsample --------------------------------------------------
+		word_embeddings, word_mask = self.pooler(
+			phoneme_skip, input_ids
+			)										  # (B, W, D), (B, W)
+
+		# --- word positional embeddings ---------------------------------
+		B, W, D = word_embeddings.shape
+		word_positions = torch.arange(W, device=input_ids.device).unsqueeze(0).expand(B,W)
+		word_embeddings = word_embeddings + self.word_position_embeddings(word_positions)
+
+		# --- word level transformer -------------------------------------
+		word_embeddings = self.word_transformer(
+			word_embeddings, word_mask
+			)												   # (B, W, D)
+
+		# --- upsample --------------------------------------------------
+		x = self.splitter(
+			word_embeddings, phoneme_skip, input_ids
+			)												   # (B, T, D)
+
+		# --- reintroduce phoneme positional embeddings ------------------
+		positions = torch.arange(T, device=input_ids.device).unsqueeze(0).expand(B, T)
+		x = x + self.phoneme_position_embeddings(positions)
+
+		# --- output head --------------------------------------------------
+		x = self.output_norm(x)
+		logits = self.unembedding(x)				   # (B, T, vocab_size)
+
+
+		return logits
+
+		
+
+
+
+
+
+
 
 
 
