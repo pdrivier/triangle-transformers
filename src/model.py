@@ -56,6 +56,7 @@ if __name__ == "__main__":
 # For first-pass phoneme contextualization, before any downsampling
 # this might end up needing to be a larger block of heads, to learn GOOD phoneme representations?
 
+
 class CausalTransformerBlock(nn.Module):
 	def __init__(self, d_model, num_heads, ffn_dim, dropout=0.1):
 		super().__init__()
@@ -113,22 +114,39 @@ class CausalTransformerBlock(nn.Module):
 
 		return x             # expect (B, T, D)
 
+
+class CausalTransformerStack(nn.Module):
+	def __init__(self, d_model, num_heads, ffn_dim, num_layers=2, dropout=0.1):
+		super().__init__()
+		self.layers = nn.ModuleList([
+			CausalTransformerBlock(d_model, num_heads, ffn_dim, dropout)
+				for _ in range(num_layers)
+
+				])
+
+	def forward(self,x):
+		for layer in self.layers:
+			x = layer(x)
+
+		return x
+
 if __name__ == "__main__":
 	d_model = 256
 	num_heads = 8
 	ffn_dim = 4 * d_model
+	num_layers = 2
 	B, T = 2, 16
 
-	block = CausalTransformerBlock(d_model, num_heads, ffn_dim)
-	block.eval()
+	stack = CausalTransformerStack(d_model, num_heads, ffn_dim, num_layers=num_layers)
+	stack.eval()
 
 	x = torch.randn(B, T, d_model)
-	output_original = block(x).detach().clone()
+	output_original = stack(x).detach().clone()
 
 	# causality test: modify position t=8, verify that positions < 8 are unaffected!
 	x_modified = x.clone()
 	x_modified[:, 8, :] = torch.randn(d_model)
-	output_modified = block(x_modified).detach().clone()
+	output_modified = stack(x_modified).detach().clone()
 
 	causality_ok = torch.allclose(
 		output_original[:, :8, :],
@@ -137,7 +155,11 @@ if __name__ == "__main__":
 
 	print(f"Causality test passed: {causality_ok}")
 	print(f"Output shape: {output_original.shape}")	# expect (2, 16, 256)
+	print(f"Num layers: {num_layers}")
 
+	# Parameter count sanity check
+	n_params = sum(p.numel() for p in stack.parameters())
+	print(f"Stack parameters: {n_params:,}")
 
 
 # ===== Causal Convolutional Block ========================================
@@ -546,15 +568,15 @@ if __name__ == "__main__":
 class PhonemeLM(nn.Module):
 	def __init__(self, vocab_size, d_model, num_heads, ffn_dim,
 		max_seq_len, max_word_len, pad_id, space_id,
-		boundary_ids, passthrough_ids, dropout=0.1):
+		boundary_ids, passthrough_ids, num_layers=2, dropout=0.1):
 		super().__init__()
 
 		# --- phoneme level --------------------------------------------------
 		self.embedding = PhonemeEmbedding(
 			vocab_size, d_model, max_seq_len, pad_id
 			)
-		self.early_transformer = CausalTransformerBlock(
-			d_model, num_heads, ffn_dim, dropout)
+		self.early_transformer = CausalTransformerStack(
+			d_model, num_heads, ffn_dim, num_layers, dropout)
 
 		# --- downsampling --------------------------------------------------
 		self.pooler = BoundaryAwarePooler(
