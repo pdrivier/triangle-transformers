@@ -34,22 +34,22 @@ class PhonemeEmbedding(nn.Module):
 
 		return phoneme_emb + position_emb 				   # (B, T, D)
 
-# if __name__ == "__main__": 
-# 	vocab_size = 64   # TODO: use real vocab size later, this just for testing
-# 	d_model = 256	
-# 	max_seq_len = 512
-# 	pad_id = 0
-# 	B, T = 4, 32      # shape of small fake test batch
+if __name__ == "__main__": 
+	vocab_size = 64   # TODO: use real vocab size later, this just for testing
+	d_model = 256	
+	max_seq_len = 512
+	pad_id = 0
+	B, T = 4, 32      # shape of small fake test batch
 
-# 	embedding_block = PhonemeEmbedding(vocab_size, d_model, max_seq_len, pad_id)
+	embedding_block = PhonemeEmbedding(vocab_size, d_model, max_seq_len, pad_id)
 
-# 	fake_input = torch.randint(0, vocab_size, (B, T))
-# 	output = embedding_block(fake_input)
+	fake_input = torch.randint(0, vocab_size, (B, T))
+	output = embedding_block(fake_input)
 
-# 	print(f"Input shape: {fake_input.shape}")    # should be: (4, 32)
-# 	print(f"Output shape: {output.shape}")		 # should be: (4, 32, 256)
-# 	assert output.shape == (B, T, d_model), "Shape mismatch!"
-# 	print("Embedding block text passed.")
+	print(f"Input shape: {fake_input.shape}")    # should be: (4, 32)
+	print(f"Output shape: {output.shape}")		 # should be: (4, 32, 256)
+	assert output.shape == (B, T, d_model), "Shape mismatch!"
+	print("Embedding block text passed.")
 
 
 # ===== Phon-Level Transformer Block   ========================================
@@ -113,30 +113,30 @@ class CausalTransformerBlock(nn.Module):
 
 		return x             # expect (B, T, D)
 
-# if __name__ == "__main__":
-# 	d_model = 256
-# 	num_heads = 8
-# 	ffn_dim = 4 * d_model
-# 	B, T = 2, 16
+if __name__ == "__main__":
+	d_model = 256
+	num_heads = 8
+	ffn_dim = 4 * d_model
+	B, T = 2, 16
 
-# 	block = CausalTransformerBlock(d_model, num_heads, ffn_dim)
-# 	block.eval()
+	block = CausalTransformerBlock(d_model, num_heads, ffn_dim)
+	block.eval()
 
-# 	x = torch.randn(B, T, d_model)
-# 	output_original = block(x).detach().clone()
+	x = torch.randn(B, T, d_model)
+	output_original = block(x).detach().clone()
 
-# 	# causality test: modify position t=8, verify that positions < 8 are unaffected!
-# 	x_modified = x.clone()
-# 	x_modified[:, 8, :] = torch.randn(d_model)
-# 	output_modified = block(x_modified).detach().clone()
+	# causality test: modify position t=8, verify that positions < 8 are unaffected!
+	x_modified = x.clone()
+	x_modified[:, 8, :] = torch.randn(d_model)
+	output_modified = block(x_modified).detach().clone()
 
-# 	causality_ok = torch.allclose(
-# 		output_original[:, :8, :],
-# 		output_modified[:, :8, :],
-# 		atol = 1e-6)
+	causality_ok = torch.allclose(
+		output_original[:, :8, :],
+		output_modified[:, :8, :],
+		atol = 1e-6)
 
-# 	print(f"Causality test passed: {causality_ok}")
-# 	print(f"Output shape: {output_original.shape}")	# expect (2, 16, 256)
+	print(f"Causality test passed: {causality_ok}")
+	print(f"Output shape: {output_original.shape}")	# expect (2, 16, 256)
 
 
 
@@ -547,32 +547,32 @@ class PhonemeLM(nn.Module):
 	def __init__(self, vocab_size, d_model, num_heads, ffn_dim,
 		max_seq_len, max_word_len, pad_id, space_id,
 		boundary_ids, passthrough_ids, dropout=0.1):
-	super().__init__()
+		super().__init__()
 
-	# --- phoneme level --------------------------------------------------
-	self.embedding = PhonemeEmbedding(
-		vocab_size, d_model, max_seq_len, pad_id
-		)
-	self.early_transformer = CausalTransformerBlock(
-		d_model, num_heads, ffn_dim, dropout)
+		# --- phoneme level --------------------------------------------------
+		self.embedding = PhonemeEmbedding(
+			vocab_size, d_model, max_seq_len, pad_id
+			)
+		self.early_transformer = CausalTransformerBlock(
+			d_model, num_heads, ffn_dim, dropout)
 
-	# --- downsampling --------------------------------------------------
-	self.pooler = BoundaryAwarePooler(
-		d_model, space_id, boundary_ids, passthrough_ids
-		)
+		# --- downsampling --------------------------------------------------
+		self.pooler = BoundaryAwarePooler(
+			d_model, space_id, boundary_ids, passthrough_ids
+			)
 
-	# --- word level  ----------------------------------------------------
-	self.word_position_embeddings = nn.Embedding(max_word_len, d_model)
-	self.word_transformer = WordTransformerBlock(
-		d_model, num_heads, ffn_dim, dropout)
+		# --- word level  ----------------------------------------------------
+		self.word_position_embeddings = nn.Embedding(max_word_len, d_model)
+		self.word_transformer = WordTransformerBlock(
+			d_model, num_heads, ffn_dim, dropout)
 
-	# --- upsampling -----------------------------------------------------
-	self.splitter = BoundaryAwareSplitter(d_model, boundary_ids)
-	self.phoneme_position_embeddings = nn.Embedding(max_seq_len, d_model)
+		# --- upsampling -----------------------------------------------------
+		self.splitter = BoundaryAwareSplitter(d_model, boundary_ids)
+		self.phoneme_position_embeddings = nn.Embedding(max_seq_len, d_model)
 
-	# --- output head ---------------------------------------------------
-	self.output_norm = nn.LayerNorm(d_model)
-	self.unembedding = nn.Linear(d_model, vocab_size)
+		# --- output head ---------------------------------------------------
+		self.output_norm = nn.LayerNorm(d_model)
+		self.unembedding = nn.Linear(d_model, vocab_size)
 
 
 	def forward(self, input_ids):
