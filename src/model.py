@@ -405,9 +405,24 @@ class WordTransformerBlock(nn.Module):
 
 		return x    # expect (B, W, D)
 
+class WordTransformerStack(nn.Module):
+	def __init__(self, d_model, num_heads, ffn_dim, num_layers=4, dropout=0.1):
+		super().__init__()
+		self.layers = nn.ModuleList([
+			WordTransformerBlock(d_model, num_heads, ffn_dim, dropout)
+			for _ in range(num_layers)
+			])
+
+	def forward(self, x, word_mask):
+		for layer in self.layers:
+			x = layer(x, word_mask)
+
+		return x
+
 if __name__ == "__main__":
 	d_model = 256
 	num_heads = 8
+	num_layers = 4
 	ffn_dim = 1024
 	B = 2
 
@@ -417,8 +432,8 @@ if __name__ == "__main__":
 	max_words = 5 
 	real_words = [5, 3]
 
-	block = WordTransformerBlock(d_model, num_heads, ffn_dim)
-	block.eval()
+	stack = WordTransformerStack(d_model, num_heads, ffn_dim, num_layers=num_layers)
+	stack.eval()
 
 	# ---- simulate word embeddings and mask ---------------
 	x = torch.randn(B, max_words, d_model)
@@ -431,7 +446,7 @@ if __name__ == "__main__":
 	print(f"Word mask:\n{word_mask}")
 
 	# ---- basic forward pass ------------------------------
-	out = block(x, word_mask)
+	out = stack(x, word_mask) # TODO: minor error here
 	print(f"Output shape:     {out.shape}") # expect (2, 5, 256)
 	assert out.shape == (B, max_words, d_model), "Shape mismatch!"
 
@@ -439,7 +454,7 @@ if __name__ == "__main__":
 	# modify word position t = 2, verify that positions 0 and 1 are unaffected
 	x_modified = x.clone()
 	x_modified[:, 2, :] = torch.randn(d_model)
-	out_modified = block(x_modified, word_mask)
+	out_modified = stack(x_modified, word_mask)
 
 	causality_ok = torch.allclose(
 		out[:, :2, :],
@@ -455,7 +470,7 @@ if __name__ == "__main__":
 	# the real positions remain intact
 	x_noise_in_padding = x.clone()
 	x_noise_in_padding[1, 3:, :] = torch.randn(2, d_model)   # corrupt padding
-	out_noise = block(x_noise_in_padding, word_mask)
+	out_noise = stack(x_noise_in_padding, word_mask)
 
 	padding_ok = torch.allclose(
 		out[1, :3, :],
@@ -585,8 +600,8 @@ class PhonemeLM(nn.Module):
 
 		# --- word level  ----------------------------------------------------
 		self.word_position_embeddings = nn.Embedding(max_word_len, d_model)
-		self.word_transformer = WordTransformerBlock(
-			d_model, num_heads, ffn_dim, dropout)
+		self.word_transformer = WordTransformerStack(
+			d_model, num_heads, ffn_dim, num_layers, dropout)
 
 		# --- upsampling -----------------------------------------------------
 		self.splitter = BoundaryAwareSplitter(d_model, boundary_ids)
