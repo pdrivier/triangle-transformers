@@ -90,7 +90,7 @@ class CausalTransformerBlock(nn.Module):
 		# generate the causal mask: upper triangle is -inf, diagonal, and below is 0
 		# shape: (T, T)
 		causal_mask = nn.Transformer.generate_square_subsequent_mask(
-			T, device = x.device)
+			T, device = x.device).to(torch.float32) # explicit cast, to avoid MPS dtype issues
 
 
 		#----- causal self-attention with residual -----
