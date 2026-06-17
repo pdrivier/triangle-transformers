@@ -244,7 +244,7 @@ def save_checkpoint(path, model, optimizer, scheduler, step, cfg):
 	os.makedirs(os.path.dirname(path), exist_ok=True)
 	torch.save({
 		"step": step,
-		"model_state_dict": model_state_dict(),
+		"model_state_dict": model.state_dict(),
 		"optimizer_state_dict": optimizer.state_dict(),
 		"scheduler_state_dict": scheduler.state_dict(),
 		"config": asdict(cfg),
@@ -265,7 +265,7 @@ def train(cfg: TrainConfig):
 	device = get_device()
 	logger = Logger(cfg.log_dir)
 
-	model, Optimizer, scheduler, train_loader, val_loader, dataset = build_components(cfg,device)
+	model, optimizer, scheduler, train_loader, val_loader, dataset = build_components(cfg,device)
 
 	global_step = 0
 	if cfg.resume_from: 
