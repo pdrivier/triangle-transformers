@@ -5,6 +5,11 @@ wikipedia_streaming.py
 Streams Wikipedia articles and feeds them into the existing IPATokenizer pipeline.
 """
 
+# explicitly tell phonemizer where to find the relevant espeak backend materials
+import os
+os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = "/opt/homebrew/lib/libespeak-ng.dylib"
+
+
 import json
 import re
 import nltk
@@ -216,8 +221,8 @@ def _tee_n(iterator: Iterator, n: int):
 
 if __name__ == "__main__":
 	stream_to_ipa_corpus(
-		output_path="data/raw/june_desktop_latin_filtering_wikipedia_ipa_20000.jsonl",
-		max_sentences=20_000,       # 500_000 is good starting size for LM pretraining
+		output_path="data/raw/test_latin_filtering_wikipedia_ipa_50000.jsonl",
+		max_sentences=50_000,       # 500_000 is good starting size for LM pretraining
 		batch_size=256,
 		vocab_warmup_sentences=0,  # make this nonzero to train the vocab if you don't have one already
 		save_vocab_path="data/vocab/phoneme_vocab.json",

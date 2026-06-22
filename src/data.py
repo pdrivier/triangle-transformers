@@ -27,7 +27,7 @@ from transcribe_dataset import stream_to_ipa_corpus
 class PhonemeDataset:
 	"""Pipeline for reading vocab file and prepares the dataset for the model to consume."""
 
-	def __init__(self, data_path = "data/", vocab_path="vocab/phoneme_vocab.json", corpus_path="raw/wikipedia_ipa_50000.jsonl"): 
+	def __init__(self, data_path = "data/", vocab_path="vocab/phoneme_vocab.json", corpus_path="raw/june_desktop_latin_filtering_wikipedia_ipa_170000.jsonl"): 
 		"""
 		Initialize the Dataset Class.
 
@@ -52,14 +52,14 @@ class PhonemeDataset:
 		#self.debug_text = []		# TODO: remove later, this is just for debugging/checking the transcriptions
 		with open(self.corpus_path, "r", encoding="utf-8") as file:
 			for line_number, line in enumerate(file, start=1):
-				if line_number < 10: ### TODO: remove for runtime, this is just for testing
-					try: 
-						record = json.loads(line.strip())
-						#self.debug_text.append(record["text"])   # TODO: remove after debug
-						self.sequences.append(record["ids"])
-						print(f"Line {line_number}: {self.sequences}")
-					except json.JSONDecodeError as e:
-						print(f"Error parsing line {line_number}: {line.strip()}")
+				# if line_number < 10: ### TODO: remove for runtime, this is just for testing
+				try: 
+					record = json.loads(line.strip())
+					#self.debug_text.append(record["text"])   # TODO: remove after debug
+					self.sequences.append(record["ids"])
+				#	print(f"Line {line_number}: {self.sequences}")
+				except json.JSONDecodeError as e:
+					print(f"Error parsing line {line_number}: {line.strip()}")
 
 
 	def __len__(self):
