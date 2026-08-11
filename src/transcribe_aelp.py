@@ -6,7 +6,10 @@ writes a stimuli/words.json ready for lexical_eval.py
 """
 
 import os
+import random
+
 import pandas as pd
+
 
 from phonemizer import phonemize
 from tqdm import tqdm
