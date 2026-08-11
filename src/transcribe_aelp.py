@@ -60,8 +60,12 @@ for i in range(k_shuffles):
 	df_orig[f"ipa_words_shuffle_{i}"] = df_tmp["ipa_words"].apply(shuffle_string)
 	df_orig[f"ipa_nonwords_shuffle_{i}"] = df_tmp["ipa_nonwords"].apply(shuffle_string)
 
+# Store as .csv to quickly scan it and make sure the shuffles look right
 savename = "aelp_with_shuffles_transcribed.csv"
 df_orig.to_csv(os.path.join(filepath,savename))
+
+# Convert to .json format for lexical evaluation pipeline
+
 
 
 
