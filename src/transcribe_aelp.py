@@ -70,7 +70,7 @@ records = []
 for idx, row in df_orig.iterrows():
     pair_id = row.get('pair_id', idx)  # use existing pair_id column if present, else row index
     # --- original word ---
-    ipa = row['ipa_words']
+    ipa = " ".join(row['ipa_words'])
     n_phon = len(ipa.split())
     records.append({
         "word": row['word_us'],
@@ -82,7 +82,7 @@ for idx, row in df_orig.iterrows():
         "shuffle_id": None
     })
     # --- original nonword ---
-    ipa = row['ipa_nonwords']
+    ipa = " ".join(row['ipa_nonwords'])
     n_phon = len(ipa.split())
     records.append({
         "word": row['nonword'],
@@ -95,7 +95,7 @@ for idx, row in df_orig.iterrows():
     })
     # --- shuffled words (1-5) ---
     for i in range(1, k_shuffles):
-        ipa = row[f'ipa_words_shuffle_{i}']
+        ipa = " ".join(row[f'ipa_words_shuffle_{i}'])
         n_phon = len(ipa.split())
         records.append({
             "word": row['word_us'],
@@ -108,7 +108,7 @@ for idx, row in df_orig.iterrows():
         })
     # --- shuffled nonwords (1-5) ---
     for i in range(1, k_shuffles):
-        ipa = row[f'ipa_nonwords_shuffle_{i}']
+        ipa = " ".join(row[f'ipa_nonwords_shuffle_{i}'])
         n_phon = len(ipa.split())
         records.append({
             "word": row['nonword'],
