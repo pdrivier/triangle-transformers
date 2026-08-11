@@ -8,11 +8,15 @@ writes a stimuli/words.json ready for lexical_eval.py
 import os
 import random
 
+import numpy as np
 import pandas as pd
 
 
 from phonemizer import phonemize
 from tqdm import tqdm
+
+def shuffle_string(s):
+	return ''.join(random.sample(s,len(s)))
 
 
 # Load the aelp dataframe
@@ -27,6 +31,7 @@ words = [w[0] for w in words]
 nonwords = df_orig[["nonword"]].values.tolist()
 nonwords = [nw[0] for nw in nonwords]
 
+# TODO: for some reason phonemize not working anymore, so annoying! breaks so frequently
 ipa_words = phonemize(
 	words,
 	language='en-us',
@@ -47,7 +52,14 @@ ipa_nonwords = phonemize(
 df_orig["ipa_words"] = ipa_words 
 df_orig["ipa_nonwords"] = ipa_nonwords
 
-savename = "aelp_transcribed.csv"
+# Create a random baseline by randomly shuffling the IPA word and nonword transcriptions and storing 
+# them in their own columns
+k_shuffles = 5
+for i in range(k_shuffles):
+	df_orig[f"ipa_words_shuffle_{i}"] = df_tmp["ipa_words"].apply(shuffle_string)
+	df_orig[f"ipa_nonwords_shuffle_{i}"] = df_tmp["ipa_nonwords"].apply(shuffle_string)
+
+savename = "aelp_with_shuffles_transcribed.csv"
 df_orig.to_csv(os.path.join(filepath,savename))
 
 
