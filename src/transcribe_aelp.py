@@ -31,7 +31,8 @@ words = [w[0] for w in words]
 nonwords = df_orig[["nonword"]].values.tolist()
 nonwords = [nw[0] for nw in nonwords]
 
-# TODO: for some reason phonemize not working anymore, so annoying! breaks so frequently
+# TODO 08/11/2026: for some reason phonemize not working anymore on lab mac, so annoying! breaks so frequently
+# Transcribe each word and its matched nonword and store the results in the same dataframe
 ipa_words = phonemize(
 	words,
 	language='en-us',
