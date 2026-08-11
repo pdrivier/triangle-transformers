@@ -222,17 +222,24 @@ def compute_discrimination_metrics(scored_stimuli: list[dict]) -> dict:
     """
     words    = [s for s in scored_stimuli if s["label"] == "word"]
     nonwords = [s for s in scored_stimuli if s["label"] == "nonword"]
+    shuffle_words = [s for s in scored_stimuli if s["label"] == "shuffled_word"]
+    shuffle_nonwords = [s for s in scored_stimuli if s["label"] == "shuffled_nonword"]
 
     if not words or not nonwords:
         raise ValueError("Need at least one word and one nonword in stimuli.")
 
     word_scores    = [s["score"] for s in words]
     nonword_scores = [s["score"] for s in nonwords]
+    shuffle_words_scores = [s["score"] for s in shuffle_words]
+    shuffle_nonwords_scores = [s["score"] for s in shuffle_nonwords]
 
     mean_w  = sum(word_scores) / len(word_scores)
     mean_nw = sum(nonword_scores) / len(nonword_scores)
+    mean_shw = sum(shuffle_words) / len(shuffle_words_scores)
+    mean_shnw = sum(shuffle_nonwords) / len(shuffle_nonwords_scores)
 
     # d-prime: (mean_word - mean_nonword) / pooled_std
+    # TODO 08/11/2026: figure out how to set up contrast with the shuffles
     import statistics
     std_w  = statistics.stdev(word_scores)    if len(word_scores)    > 1 else 1e-8
     std_nw = statistics.stdev(nonword_scores) if len(nonword_scores) > 1 else 1e-8
@@ -301,7 +308,7 @@ def load_stimuli(path: str) -> list[dict]:
     for i, item in enumerate(stimuli):
         if "ipa" not in item or "label" not in item:
             raise ValueError(f"Stimulus {i} missing 'ipa' or 'label' field: {item}")
-        if item["label"] not in ("word", "nonword"):
+        if item["label"] not in ("word", "nonword", "shuffled_nonword"):
             raise ValueError(f"Stimulus {i} has invalid label '{item['label']}' (must be 'word' or 'nonword')")
 
     return stimuli
@@ -447,7 +454,7 @@ def main(
 if __name__ == "__main__":
     main(
         checkpoint_dir = "checkpoints/",
-        stimuli_path   = "stimuli/words.json",
+        stimuli_path   = "stimuli/words_and_shuffles.json",
         output_dir     = "results/",
         val_corpus_n   = 500,
     )
