@@ -4,7 +4,7 @@ https://inetapps.nus.edu.sg/aelp/generate
 
 writes a stimuli/words.json ready for lexical_eval.py
 """
-
+import json
 import os
 import random
 
@@ -65,6 +65,64 @@ savename = "aelp_with_shuffles_transcribed.csv"
 df_orig.to_csv(os.path.join(filepath,savename))
 
 # Convert to .json format for lexical evaluation pipeline
+records = []
+
+for idx, row in df_orig.iterrows():
+    pair_id = row.get('pair_id', idx)  # use existing pair_id column if present, else row index
+    # --- original word ---
+    ipa = row['ipa_words']
+    n_phon = len(ipa.split())
+    records.append({
+        "word": row['word_us'],
+        "ipa": ipa,
+        "label": "word",
+        "length": len(row['word_us']),
+        "pair_id": pair_id,
+        "n_phon": str(n_phon),
+        "shuffle_id": None
+    })
+    # --- original nonword ---
+    ipa = row['ipa_nonwords']
+    n_phon = len(ipa.split())
+    records.append({
+        "word": row['nonword'],
+        "ipa": ipa,
+        "label": "nonword",
+        "length": len(row['nonword']),
+        "pair_id": pair_id,
+        "n_phon": str(n_phon),
+        "shuffle_id": None
+    })
+    # --- shuffled words (1-5) ---
+    for i in range(1, k_shuffles):
+        ipa = row[f'ipa_words_shuffle_{i}']
+        n_phon = len(ipa.split())
+        records.append({
+            "word": row['word_us'],
+            "ipa": ipa,
+            "label": "shuffled_word",
+            "length": len(row['word_us']),
+            "pair_id": pair_id,
+            "n_phon": str(n_phon),
+            "shuffle_id": i
+        })
+    # --- shuffled nonwords (1-5) ---
+    for i in range(1, k_shuffles):
+        ipa = row[f'ipa_nonwords_shuffle_{i}']
+        n_phon = len(ipa.split())
+        records.append({
+            "word": row['nonword'],
+            "ipa": ipa,
+            "label": "shuffled_nonword",
+            "length": len(row['nonword']),
+            "pair_id": pair_id,
+            "n_phon": str(n_phon),
+            "shuffle_id": i
+        })
+
+filesavename = "words_and_shuffles.json"
+with open(os.path.join(filepath,filesavename), 'w', encoding='utf-8') as f:
+    json.dump(records, f, ensure_ascii=False, indent=2)
 
 
 
