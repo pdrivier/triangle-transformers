@@ -235,8 +235,29 @@ def compute_discrimination_metrics(scored_stimuli: list[dict]) -> dict:
 
     mean_w  = sum(word_scores) / len(word_scores)
     mean_nw = sum(nonword_scores) / len(nonword_scores)
-    mean_shw = sum(shuffle_words) / len(shuffle_words_scores)
-    mean_shnw = sum(shuffle_nonwords) / len(shuffle_nonwords_scores)
+    
+    def per_shuffle_means(items: list[dict]) -> dict:
+        """Group by shuffle_id and return {shuffle_id: mean_score}."""
+        groups: dict[object, list[float]] = {}
+        for s in items:
+            if "shuffle_id" not in s:
+                raise ValueError(f"Item missing shuffle_id: {s}")
+            groups.setdefault(s["shuffle_id"], []).append(s["score"])
+        return {sid: sum(scores) / len(scores) for sid, scores in groups.items()}
+
+    shw_by_shuffle  = per_shuffle_means(shuffle_words)
+    shnw_by_shuffle = per_shuffle_means(shuffle_nonwords)
+
+    shw_means  = list(shw_by_shuffle.values())
+    shnw_means = list(shnw_by_shuffle.values())
+
+    mean_shw  = sum(shw_means) / len(shw_means)   if shw_means  else float("nan")
+    mean_shnw = sum(shnw_means) / len(shnw_means) if shnw_means else float("nan")
+
+    # variability across shuffles (useful as a noise-floor / control-condition spread)
+    std_shw  = statistics.stdev(shw_means)  if len(shw_means)  > 1 else 0.0
+    std_shnw = statistics.stdev(shnw_means) if len(shnw_means) > 1 else 0.0
+
 
     # d-prime: (mean_word - mean_nonword) / pooled_std
     # TODO 08/11/2026: figure out how to set up contrast with the shuffles
@@ -245,6 +266,15 @@ def compute_discrimination_metrics(scored_stimuli: list[dict]) -> dict:
     std_nw = statistics.stdev(nonword_scores) if len(nonword_scores) > 1 else 1e-8
     pooled_std = ((std_w ** 2 + std_nw ** 2) / 2) ** 0.5
     d_prime = (mean_w - mean_nw) / max(pooled_std, 1e-8)
+
+    # d-prime for the shuffled control, computed the same way but across
+    # per-shuffle means (so it reflects shuffle-to-shuffle variability, not
+    # pooled item-level noise)
+    pooled_std_shuffle = ((std_shw ** 2 + std_shnw ** 2) / 2) ** 0.5
+    d_prime_shuffle = (
+        (mean_shw - mean_shnw) / max(pooled_std_shuffle, 1e-8)
+        if shw_means and shnw_means else float("nan")
+    )
 
     # pairwise accuracy: use pair_id if available (AELP paired design),
     # otherwise fall back to sorting by length and pairing greedily
@@ -271,11 +301,22 @@ def compute_discrimination_metrics(scored_stimuli: list[dict]) -> dict:
     return {
         "mean_word_score":    mean_w,
         "mean_nonword_score": mean_nw,
-        "gap":                mean_w - mean_nw,
-        "d_prime":            d_prime,
-        "pairwise_accuracy":  pairwise_acc,
+        "mean_shuffle_word_score":    mean_shw,
+        "mean_shuffle_nonword_score": mean_shnw,
+        "shuffle_word_scores_by_id":    shw_by_shuffle,
+        "shuffle_nonword_scores_by_id": shnw_by_shuffle,
+        "std_shuffle_word_means":    std_shw,
+        "std_shuffle_nonword_means": std_shnw,
         "n_words":            len(words),
         "n_nonwords":         len(nonwords),
+        "n_shuffle_words":    len(shuffle_words),
+        "n_shuffle_nonwords": len(shuffle_nonwords),
+        "n_shuffles_word":    len(shw_by_shuffle),
+        "n_shuffles_nonword": len(shnw_by_shuffle),
+        "gap":                mean_w - mean_nw,
+        "d_prime":            d_prime,
+        "d_prime_shuffle":    d_prime_shuffle,
+        "pairwise_accuracy":  pairwise_acc,
     }
 
 
