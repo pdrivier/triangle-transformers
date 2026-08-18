@@ -356,7 +356,6 @@ def load_stimuli(path: str) -> list[dict]:
 
 
 # ===== 6. Plotting ============================================================
-
 def plot_results(checkpoint_records: list[dict], output_path: str):
     """
     Two-panel plot:
@@ -368,10 +367,8 @@ def plot_results(checkpoint_records: list[dict], output_path: str):
     gaps        = [r["gap"]           for r in checkpoint_records]
     d_primes    = [r["d_prime"]       for r in checkpoint_records]
     pair_accs   = [r["pairwise_accuracy"] for r in checkpoint_records]
-
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
     fig.suptitle("Phoneme LM: Evaluation across checkpoints", fontsize=13)
-
     # --- Panel 1: Validation perplexity ---
     ax = axes[0]
     ax.plot(steps, val_ppls, "o-", color="#2166ac", linewidth=2, markersize=6)
@@ -379,7 +376,6 @@ def plot_results(checkpoint_records: list[dict], output_path: str):
     ax.set_ylabel("Validation perplexity")
     ax.set_title("Held-out perplexity")
     ax.grid(True, alpha=0.3)
-
     # --- Panel 2: Word/nonword score gap ---
     ax = axes[1]
     ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
@@ -389,7 +385,6 @@ def plot_results(checkpoint_records: list[dict], output_path: str):
     ax.set_title("Lexical discrimination (gap)")
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
-
     # --- Panel 3: d' and pairwise accuracy ---
     ax = axes[2]
     ax2 = ax.twinx()
@@ -403,18 +398,90 @@ def plot_results(checkpoint_records: list[dict], output_path: str):
     ax.set_title("Discrimination sensitivity")
     ax.legend(handles=[l1, l2], fontsize=9, loc="lower right")
     ax.grid(True, alpha=0.3)
-
     plt.tight_layout()
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     print(f"Plot saved -> {output_path}")
 
 
-# ===== 7. Main ================================================================
+def plot_shuffle_histograms(
+    checkpoint_records: list[dict],
+    output_path: str,
+    checkpoint_index: int = -1,   # which checkpoint's record to visualize; -1 = last (final/most-trained)
+):
+    """
+    Two-panel plot for a single checkpoint:
+      Left:  histogram of per-shuffle mean scores for shuffled words,
+             with vertical lines marking the real word mean and the
+             overall shuffled-word mean.
+      Right: same, for shuffled nonwords vs. real nonwords.
 
+    Relies on `shuffle_word_scores_by_id` / `shuffle_nonword_scores_by_id`
+    (dicts of {shuffle_id: mean_score}) produced by
+    compute_discrimination_metrics.
+    """
+    if not checkpoint_records:
+        raise ValueError("checkpoint_records is empty.")
+    rec = checkpoint_records[checkpoint_index]
+    step = rec["step"]
+
+    shw_by_id  = rec.get("shuffle_word_scores_by_id", {})
+    shnw_by_id = rec.get("shuffle_nonword_scores_by_id", {})
+    if not shw_by_id or not shnw_by_id:
+        raise ValueError(
+            f"Checkpoint record for step {step} is missing shuffle score "
+            "breakdowns (shuffle_word_scores_by_id / shuffle_nonword_scores_by_id)."
+        )
+
+    shw_means  = list(shw_by_id.values())
+    shnw_means = list(shnw_by_id.values())
+
+    mean_w   = rec["mean_word_score"]
+    mean_nw  = rec["mean_nonword_score"]
+    mean_shw  = rec["mean_shuffle_word_score"]
+    mean_shnw = rec["mean_shuffle_nonword_score"]
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), sharey=False)
+    fig.suptitle(f"Shuffle-control distributions (step {step})", fontsize=13)
+
+    # --- Panel 1: shuffled words ---
+    ax = axes[0]
+    ax.hist(shw_means, bins=min(10, len(shw_means)), color="#4393c3",
+             edgecolor="white", alpha=0.85)
+    ax.axvline(mean_w, color="#2166ac", linewidth=2.2, linestyle="-",
+               label=f"real word mean ({mean_w:.3f})")
+    ax.axvline(mean_shw, color="#4393c3", linewidth=2.2, linestyle="--",
+               label=f"shuffle mean ({mean_shw:.3f})")
+    ax.set_xlabel("Mean log-prob per shuffle")
+    ax.set_ylabel("Count (shuffles)")
+    ax.set_title(f"Words vs. shuffled words (n={len(shw_means)} shuffles)")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    # --- Panel 2: shuffled nonwords ---
+    ax = axes[1]
+    ax.hist(shnw_means, bins=min(10, len(shnw_means)), color="#f4a582",
+             edgecolor="white", alpha=0.85)
+    ax.axvline(mean_nw, color="#d6604d", linewidth=2.2, linestyle="-",
+               label=f"real nonword mean ({mean_nw:.3f})")
+    ax.axvline(mean_shnw, color="#f4a582", linewidth=2.2, linestyle="--",
+               label=f"shuffle mean ({mean_shnw:.3f})")
+    ax.set_xlabel("Mean log-prob per shuffle")
+    ax.set_ylabel("Count (shuffles)")
+    ax.set_title(f"Nonwords vs. shuffled nonwords (n={len(shnw_means)} shuffles)")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Shuffle histogram plot saved -> {output_path}")
+
+# ===== 7. Main ================================================================
 def main(
     checkpoint_dir: str = "checkpoints/",
-    stimuli_path: str   = "stimuli/words.json",
+    stimuli_path: str   = "stimuli/words_and_shuffles.json",
     output_dir: str     = "results/",
     val_corpus_n: int   = 500,     # number of dataset sequences to use for val perplexity
 ):
@@ -425,8 +492,10 @@ def main(
     print(f"Loading stimuli from {stimuli_path}")
     stimuli = load_stimuli(stimuli_path)
     print(f"  {len(stimuli)} stimuli loaded "
-          f"({sum(1 for s in stimuli if s['label']=='word')} words, "
-          f"{sum(1 for s in stimuli if s['label']=='nonword')} nonwords)")
+          f"({sum(1 for s in stimuli if s['label'] == 'word')} words, "
+          f"{sum(1 for s in stimuli if s['label'] == 'nonword')} nonwords), "
+          f"{sum(1 for s in stimuli if s['label'] == 'shuffled_word')} shuffle_words, "
+          f"{sum(1 for s in stimuli if s['label'] == 'shuffled_nonword')} shuffle_nonwords")
 
     # --- Discover checkpoints -------------------------------------------------
     checkpoints = discover_checkpoints(checkpoint_dir)
@@ -439,7 +508,6 @@ def main(
     for ck in checkpoints:
         print(f"\n{'='*55}")
         print(f"Evaluating checkpoint: step {ck['step']}  ({ck['path']})")
-
         model, dataset, cfg = load_model_for_eval(ck["path"], device)
 
         # -- Validation perplexity (on a subset of the dataset for speed) ------
@@ -455,10 +523,15 @@ def main(
         # -- Lexical scoring ---------------------------------------------------
         scored = score_all_stimuli(model, stimuli, dataset, device)
         disc   = compute_discrimination_metrics(scored)
-        print(f"  word mean score:    {disc['mean_word_score']:.4f}")
-        print(f"  nonword mean score: {disc['mean_nonword_score']:.4f}")
+        print(f"  word mean score:             {disc['mean_word_score']:.4f}")
+        print(f"  nonword mean score:          {disc['mean_nonword_score']:.4f}")
+        print(f"  shuffled word mean score:    {disc['mean_shuffle_word_score']:.4f}"
+              f"  (n_shuffles={disc['n_shuffles_word']})")
+        print(f"  shuffled nonword mean score: {disc['mean_shuffle_nonword_score']:.4f}"
+              f"  (n_shuffles={disc['n_shuffles_nonword']})")
         print(f"  gap:                {disc['gap']:.4f}")
         print(f"  d′:                 {disc['d_prime']:.4f}")
+        print(f"  d′ (shuffle ctrl):  {disc['d_prime_shuffle']:.4f}")
         print(f"  pairwise accuracy:  {disc['pairwise_accuracy']:.4f}")
 
         record = {
@@ -475,6 +548,10 @@ def main(
             torch.cuda.empty_cache()
 
     # --- Save raw results as jsonl --------------------------------------------
+    # Note: shuffle_word_scores_by_id / shuffle_nonword_scores_by_id are dicts
+    # keyed by shuffle_id, which json.dumps handles fine as long as keys are
+    # str/int/float. If your shuffle_ids aren't natively JSON-safe keys,
+    # stringify them here.
     results_path = os.path.join(output_dir, "checkpoint_metrics.jsonl")
     with open(results_path, "w") as f:
         for rec in all_records:
@@ -486,11 +563,18 @@ def main(
     plot_results(all_records, plot_path)
 
     # --- Print final summary table --------------------------------------------
-    print(f"\n{'step':>10}  {'val_ppl':>10}  {'gap':>8}  {'d_prime':>8}  {'pair_acc':>9}")
-    print("-" * 55)
+    print(f"\n{'step':>10}  {'val_ppl':>10}  {'gap':>8}  {'d_prime':>8}  {'d_shuf':>8}  {'pair_acc':>9}")
+    print("-" * 66)
     for r in all_records:
-        print(f"{r['step']:>10}  {r['val_ppl']:>10.2f}  {r['gap']:>8.4f}  {r['d_prime']:>8.4f}  {r['pairwise_accuracy']:>9.4f}")
+        print(f"{r['step']:>10}  {r['val_ppl']:>10.2f}  {r['gap']:>8.4f}  "
+              f"{r['d_prime']:>8.4f}  {r['d_prime_shuffle']:>8.4f}  {r['pairwise_accuracy']:>9.4f}")
 
+    # --- Plot -----------------------------------------------------------------
+    plot_path = os.path.join(output_dir, "lexical_eval.png")
+    plot_results(all_records, plot_path)
+
+    shuffle_hist_path = os.path.join(output_dir, "shuffle_histograms.png")
+    plot_shuffle_histograms(all_records, shuffle_hist_path)  # defaults to last checkpoint
 
 if __name__ == "__main__":
     main(
