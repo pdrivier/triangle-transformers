@@ -25,6 +25,7 @@ import csv
 import json
 import glob
 import math
+import statistics
 from dataclasses import asdict
 
 import torch
@@ -261,7 +262,6 @@ def compute_discrimination_metrics(scored_stimuli: list[dict]) -> dict:
 
     # d-prime: (mean_word - mean_nonword) / pooled_std
     # TODO 08/11/2026: figure out how to set up contrast with the shuffles
-    import statistics
     std_w  = statistics.stdev(word_scores)    if len(word_scores)    > 1 else 1e-8
     std_nw = statistics.stdev(nonword_scores) if len(nonword_scores) > 1 else 1e-8
     pooled_std = ((std_w ** 2 + std_nw ** 2) / 2) ** 0.5
