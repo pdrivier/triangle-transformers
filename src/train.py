@@ -239,6 +239,7 @@ def evaluate(model, val_loader, device):
 
 
 # ==== 6. Checkpointing ===============================================================
+# TODO: want to additionally save the cumulative number of tokens seen by this checkpoint
 
 def save_checkpoint(path, model, optimizer, scheduler, step, cfg): 
 	os.makedirs(os.path.dirname(path), exist_ok=True)
