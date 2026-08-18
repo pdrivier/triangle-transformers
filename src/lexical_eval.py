@@ -349,8 +349,8 @@ def load_stimuli(path: str) -> list[dict]:
     for i, item in enumerate(stimuli):
         if "ipa" not in item or "label" not in item:
             raise ValueError(f"Stimulus {i} missing 'ipa' or 'label' field: {item}")
-        if item["label"] not in ("word", "nonword", "shuffled_nonword"):
-            raise ValueError(f"Stimulus {i} has invalid label '{item['label']}' (must be 'word' or 'nonword')")
+        if item["label"] not in ("word", "nonword", "shuffled_word", "shuffled_nonword"):
+            raise ValueError(f"Stimulus {i} has invalid label '{item['label']}' (must be 'word' or 'nonword' or a shuffled version of each)")
 
     return stimuli
 
