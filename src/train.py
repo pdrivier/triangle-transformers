@@ -8,7 +8,8 @@ Pipeline: TrainConfig > build_components > train() > {train_step, evaluate, chec
 import os 
 import json 
 import random
-from dataclasses import dataclass, asdict
+import argparse
+from dataclasses import dataclass, asdict, fields
 from typing import Optional, List
 
 import numpy as np 
@@ -54,9 +55,20 @@ class TrainConfig:
 	warmup_steps: int = 1000
 	grad_clip: float = 1.0
 
-	# --- Checkpointing & logging ---
+	# --- Run identity (drives the hierarchical experiments/ layout) ---
+	# e.g. run_group="depth_sweep", run_name="depth4_width512" ->
+	#      experiments/depth_sweep/depth4_width512/{checkpoints,logs,config.json}
+	run_group: str = "ungrouped"
+	run_name: str = "exp000_baseline"
+	experiments_root: str = "experiments/"
+
+	# checkpoint_dir / log_dir are derived automatically in train() from
+	# experiments_root/run_group/run_name — left here as fields (rather than
+	# computed properties) so they still get dumped into the checkpoint's
+	# "config" blob and are easy to override manually if ever needed.
 	checkpoint_dir: str = "checkpoints/"
 	log_dir: str = "logs/"
+
 	log_every: int = 100
 	eval_every: int = 1000
 	save_every: int = 5000
@@ -65,6 +77,55 @@ class TrainConfig:
 
 	# --- Misc ---
 	seed: int = 42
+
+# ====== 1b. Config file loading & run directory resolution ========================
+
+def load_config(config_path: str) -> TrainConfig:
+	"""Load a TrainConfig from a JSON file, e.g. configs/depth_sweep/depth4_width512.json.
+
+	Only overrides fields present in the file, so config files can stay small
+	(just the params that differ from the defaults) rather than duplicating
+	every field of TrainConfig.
+	"""
+	with open(config_path, "r") as f:
+		overrides = json.load(f)
+
+	valid_fields = {f.name for f in fields(TrainConfig)}
+	unknown = set(overrides) - valid_fields
+	if unknown:
+		raise ValueError(
+			f"Unknown field(s) in {config_path}: {sorted(unknown)}. "
+			f"Check for typos against TrainConfig."
+			)
+
+	return TrainConfig(**overrides)
+
+
+def resolve_run_dirs(cfg: TrainConfig) -> str:
+	"""Point cfg.checkpoint_dir / cfg.log_dir at experiments/<run_group>/<run_name>/...
+
+	Mutates cfg in place (mirrors how build_components patches vocab_size etc.)
+	and returns the run's root directory.
+	"""
+	run_dir = os.path.join(cfg.experiments_root, cfg.run_group, cfg.run_name)
+	cfg.checkpoint_dir = os.path.join(run_dir, "checkpoints")
+	cfg.log_dir = os.path.join(run_dir, "logs")
+	return run_dir
+
+
+def snapshot_config(cfg: TrainConfig, run_dir: str):
+	"""Write the fully-resolved config (post vocab-patching) to run_dir/config.json.
+
+	Call this after build_components() has patched in vocab_size, space_id,
+	boundary_ids, etc., so the snapshot reflects what was actually trained,
+	not just what was requested.
+	"""
+	os.makedirs(run_dir, exist_ok=True)
+	config_path = os.path.join(run_dir, "config.json")
+	with open(config_path, "w") as f:
+		json.dump(asdict(cfg), f, indent=2)
+	print(f"Resolved config written -> {config_path}")
+
 
 # ====== 2. Setup utilities ========================================================
 def set_seed(seed: int = 42):
@@ -271,9 +332,17 @@ def load_checkpoint(path, model, optimizer, scheduler, device):
 def train(cfg: TrainConfig): 
 	set_seed(cfg.seed)
 	device = get_device()
+
+	run_dir = resolve_run_dirs(cfg)		# sets cfg.checkpoint_dir / cfg.log_dir
+	print(f"Run directory: {run_dir}")
 	logger = Logger(cfg.log_dir)
 
 	model, optimizer, scheduler, train_loader, val_loader, dataset = build_components(cfg,device)
+
+	# snapshot the config now that vocab_size/space_id/boundary_ids/passthrough_ids
+	# have been patched in by build_components — this is the config that was
+	# *actually* trained with, not just what was requested in the config file
+	snapshot_config(cfg, run_dir)
 
 	global_step = 0
 	total_tokens_seen = 0
@@ -314,6 +383,27 @@ def train(cfg: TrainConfig):
 	print("Training complete!!!")
 
 
+def parse_args():
+	parser = argparse.ArgumentParser(description="Train a phoneme LM from a config file.")
+	parser.add_argument(
+		"--config", type=str, default=None,
+		help="Path to a JSON config, e.g. configs/depth_sweep/depth4_width512.json. "
+			 "If omitted, falls back to TrainConfig defaults.",
+		)
+	# convenience overrides so you can reuse one config file across a couple of
+	# quick variants without hand-editing JSON each time
+	parser.add_argument("--run_group", type=str, default=None)
+	parser.add_argument("--run_name", type=str, default=None)
+	return parser.parse_args()
+
+
 if __name__ == "__main__": 
-	cfg = TrainConfig()
+	args = parse_args()
+	cfg = load_config(args.config) if args.config else TrainConfig()
+
+	if args.run_group is not None:
+		cfg.run_group = args.run_group
+	if args.run_name is not None:
+		cfg.run_name = args.run_name
+
 	train(cfg)
