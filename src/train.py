@@ -4,6 +4,8 @@ Training loop for CANINE-C-style phoneme-level language model.
 
 Pipeline: TrainConfig > build_components > train() > {train_step, evaluate, checkpoint}
 
+Commandline run: python train.py --config configs/identical_blocks_depth_sweep/l6_h4_d512_f2048.json
+
 """
 import os 
 import json 

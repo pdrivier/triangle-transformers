@@ -1,0 +1,8 @@
+{
+  "run_group": "identical_blocks_depth_sweep",
+  "run_name": "l6_h4_d512_f2048",
+  "num_layers": 6,
+  "d_model": 512,
+  "ffn_dim": 2048,
+  "num_heads": 4
+}
