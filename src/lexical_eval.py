@@ -440,13 +440,16 @@ def plot_shuffle_histograms(
     mean_nw  = rec["mean_nonword_score"]
     mean_shw  = rec["mean_shuffle_word_score"]
     mean_shnw = rec["mean_shuffle_nonword_score"]
+    
+    dist_shw = list(rec["shuffle_word_scores_by_id"].values())
+    dist_shnw = list(rec["shuffle_nonword_scores_by_id"].values())
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), sharey=False)
     fig.suptitle(f"Shuffle-control distributions (step {step})", fontsize=13)
 
     # --- Panel 1: shuffled words ---
     ax = axes[0]
-    ax.hist(shw_means, bins=min(10, len(shw_means)), color="#4393c3",
+    ax.hist(dist_shw, bins=min(10, len(dist_shw)), color="#4393c3",
              edgecolor="white", alpha=0.85)
     ax.axvline(mean_w, color="#2166ac", linewidth=2.2, linestyle="-",
                label=f"real word mean ({mean_w:.3f})")
@@ -460,7 +463,7 @@ def plot_shuffle_histograms(
 
     # --- Panel 2: shuffled nonwords ---
     ax = axes[1]
-    ax.hist(shnw_means, bins=min(10, len(shnw_means)), color="#f4a582",
+    ax.hist(dist_shnw, bins=min(10, len(dist_shnw)), color="#f4a582",
              edgecolor="white", alpha=0.85)
     ax.axvline(mean_nw, color="#d6604d", linewidth=2.2, linestyle="-",
                label=f"real nonword mean ({mean_nw:.3f})")

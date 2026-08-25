@@ -60,6 +60,7 @@ class TrainConfig:
 	log_every: int = 100
 	eval_every: int = 1000
 	save_every: int = 5000
+	save_step_zero: bool = True		# save an initial checkpoint before any training happens
 	resume_from: Optional[str] = None
 
 	# --- Misc ---
@@ -207,7 +208,11 @@ def train_step(model, batch, optimizer, scheduler, cfg, device):
 	optimizer.step()
 	scheduler.step()
 
-	return loss.item()
+	# number of real (non-padding) target tokens contributing to the loss this step,
+	# used to track cumulative tokens seen across training
+	n_tokens = (target_ids != -100).sum().item()
+
+	return loss.item(), n_tokens
 
 
 # ==== 5. Validation loop ========================================================
@@ -239,25 +244,27 @@ def evaluate(model, val_loader, device):
 
 
 # ==== 6. Checkpointing ===============================================================
-# TODO: want to additionally save the cumulative number of tokens seen by this checkpoint
 
-def save_checkpoint(path, model, optimizer, scheduler, step, cfg): 
+def save_checkpoint(path, model, optimizer, scheduler, step, cfg, total_tokens_seen=0): 
 	os.makedirs(os.path.dirname(path), exist_ok=True)
 	torch.save({
 		"step": step,
+		"total_tokens_seen": total_tokens_seen,
 		"model_state_dict": model.state_dict(),
 		"optimizer_state_dict": optimizer.state_dict(),
 		"scheduler_state_dict": scheduler.state_dict(),
 		"config": asdict(cfg),
 		}, path)
-	print(f"Checkpoint saved -> {path}")
+	print(f"Checkpoint saved -> {path} (step={step}, tokens_seen={total_tokens_seen:,})")
 
 def load_checkpoint(path, model, optimizer, scheduler, device): 
 	ckpt = torch.load(path, map_location=device)
 	model.load_state_dict(ckpt["model_state_dict"])
 	optimizer.load_state_dict(ckpt["optimizer_state_dict"])
 	scheduler.load_state_dict(ckpt["scheduler_state_dict"])
-	return ckpt["step"]
+	# older checkpoints won't have this key, default to 0 so resuming still works
+	total_tokens_seen = ckpt.get("total_tokens_seen", 0)
+	return ckpt["step"], total_tokens_seen
 
 
 # ===== 7. Main training loop ==========================================================
@@ -269,20 +276,27 @@ def train(cfg: TrainConfig):
 	model, optimizer, scheduler, train_loader, val_loader, dataset = build_components(cfg,device)
 
 	global_step = 0
+	total_tokens_seen = 0
 	if cfg.resume_from: 
-		global_step = load_checkpoint(cfg.resume_from, model, optimizer, scheduler, device)
-		print(f"Resumed from step {global_step}")
+		global_step, total_tokens_seen = load_checkpoint(cfg.resume_from, model, optimizer, scheduler, device)
+		print(f"Resumed from step {global_step} (tokens_seen={total_tokens_seen:,})")
+	elif cfg.save_step_zero:
+		# save an initial (step 0) checkpoint before any training happens, useful as a
+		# baseline / sanity-check reference point and for reproducing "from scratch" runs
+		ckpt_path = os.path.join(cfg.checkpoint_dir, "ckpt_step0.pt")
+		save_checkpoint(ckpt_path, model, optimizer, scheduler, global_step, cfg, total_tokens_seen)
 
 	model.train()
 	for epoch in range(cfg.max_epochs): 
 		print(f"\n{'='*60}\nEpoch {epoch}\n{'='*60}")
 		for batch in train_loader:
-			loss = train_step(model, batch, optimizer, scheduler, cfg, device)
+			loss, n_tokens = train_step(model, batch, optimizer, scheduler, cfg, device)
 			global_step += 1 
+			total_tokens_seen += n_tokens
 
 			if global_step % cfg.log_every == 0: 
 				lr = scheduler.get_last_lr()[0]
-				logger.log(global_step, {"train_loss": loss, "lr": lr, "epoch": epoch})
+				logger.log(global_step, {"train_loss": loss, "lr": lr, "epoch": epoch, "tokens_seen": total_tokens_seen})
 
 			if global_step % cfg.eval_every == 0: 
 				val_metrics = evaluate(model, val_loader, device)
@@ -290,21 +304,16 @@ def train(cfg: TrainConfig):
 
 			if global_step % cfg.save_every == 0: 
 				ckpt_path = os.path.join(cfg.checkpoint_dir, f"ckpt_step{global_step}.pt")
-				save_checkpoint(ckpt_path, model, optimizer, scheduler, global_step, cfg)
+				save_checkpoint(ckpt_path, model, optimizer, scheduler, global_step, cfg, total_tokens_seen)
 
 	# final checkpoint + eval at the end of training
 	final_metrics = evaluate(model, val_loader, device)
 	logger.log(global_step, final_metrics)
 	save_checkpoint(os.path.join(cfg.checkpoint_dir, "ckpt_final.pt"),
-					model, optimizer, scheduler, global_step, cfg)
+					model, optimizer, scheduler, global_step, cfg, total_tokens_seen)
 	print("Training complete!!!")
 
 
 if __name__ == "__main__": 
 	cfg = TrainConfig()
 	train(cfg)
-
-
-
-
-
