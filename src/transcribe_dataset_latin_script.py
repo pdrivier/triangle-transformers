@@ -6,20 +6,28 @@ Streams Wikipedia articles and feeds them into the existing IPATokenizer pipelin
 """
 
 import json
+import nltk
 import re
 import sys
-import nltk
-from itertools import islice
-from typing import Iterator, List, Optional
-from tqdm import tqdm
 
-from datasets import load_dataset
-from phonemizer import phonemize
-from phonemizer.separator import Separator
+import numpy as np
+
+from itertools import islice
+from multiprocessing import Pool
+from pathlib import Path
+from tqdm import tqdm
+from typing import Iterator, List, Optional
 
 from normalization.ipa_pipeline import IPATokenizer
 
+# from datasets import load_dataset
+# from phonemizer import phonemize
+# from phonemizer.separator import Separator
+
 # --- Handle segmentation faults ----------------------------------------------
+# Phonemizer and the espeak-ng backend cause low-level C compile problems in 
+# the Mac Air
+
 # import faulthandler
 
 # # Print traceback upon segmentation fault
@@ -222,17 +230,45 @@ def _tee_n(iterator: Iterator, n: int):
     head = list(islice(iterator, n))
     return head, iterator
 
+IN_DIR = Path("data/raw/wikipedia_raw") / SNAPSHOT
+OUT_DIR = Path("data/wikipedia_ipa/ipa_shards"); OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+def process_shard(shard_path):
+    out = OUT_DIR / (shard_path.stem + ".npy")
+    if out.exists():
+        return out.name, "skipped"
+
+    # Import and construct inside the worker so each process has its own model
+    from g2p_en import G2p
+    g2p = G2p()
+
+    ids = []
+    for art_id, title, text in iter_articles(shard_path):
+        # TODO: normalize text, split into sentences, transcribe, encode to ids
+        pass
+
+    tmp = out.with_suffix(".tmp.npy")
+    np.save(tmp, np.array(ids, dtype=np.uint8))
+    tmp.rename(out)  # atomic rename so a crash never leaves a half-written shard
+    return out.name, "done"
+
 
 # --- Entry point -------------------------------------------------------------
-
 if __name__ == "__main__":
-    CHUNK = int(sys.argv[1]) if len(sys.argv) > 1 else 0
-    CHUNK_SIZE = 170_000
-    stream_to_ipa_corpus(
-        output_path=f"data/raw/wikipedia_ipa_chunk{CHUNK:02d}.jsonl",
-        start_sentence=CHUNK * CHUNK_SIZE,
-        max_sentences=CHUNK_SIZE,
-        batch_size=256,
-        vocab_warmup_sentences=0,  # make this nonzero to train the vocab if you don't have one already
-        save_vocab_path="data/vocab/phoneme_vocab.json",
-    )
+    shards = sorted(IN_DIR.glob("*.parquet"))
+    with Pool(processes=8) as pool:
+        for name, status in pool.imap_unordered(process_shard, shards):
+            print(name, status)
+
+# Old version, which used streaming rather than locally saved shards to run the transcription
+# if __name__ == "__main__":
+#     CHUNK = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+#     CHUNK_SIZE = 170_000
+#     stream_to_ipa_corpus(
+#         output_path=f"data/raw/wikipedia_ipa_chunk{CHUNK:02d}.jsonl",
+#         start_sentence=CHUNK * CHUNK_SIZE,
+#         max_sentences=CHUNK_SIZE,
+#         batch_size=256,
+#         vocab_warmup_sentences=0,  # make this nonzero to train the vocab if you don't have one already
+#         save_vocab_path="data/vocab/phoneme_vocab.json",
+#     )

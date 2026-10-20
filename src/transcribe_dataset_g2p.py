@@ -7,7 +7,6 @@ import re
 import sys
 import nltk
 
-from g2p_en import G2p
 from multiprocessing import Pool
 from pathlib import Path
 import numpy as np
