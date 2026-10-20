@@ -133,6 +133,29 @@ def stream_wikipedia_sentences(
                 continue
             yield sent
 
+def _process_and_write_batch(batch, tokenizer, out_f, total_written, failed):
+    """Phonemize a batch and write each result as a JSONL line."""
+    for sentence in batch:
+        try:
+            ids = tokenizer.encode(sentence, phonemize, add_sos=True, add_eos=True)
+            out_f.write(json.dumps({
+                "text": sentence,
+                "ids": ids,
+            }) + "\n")
+            total_written += 1
+        except Exception as e:
+            print(f"  Warning: failed on sentence: {e}")
+            failed += 1
+    return total_written, failed
+
+
+def _tee_n(iterator: Iterator, n: int):
+    """
+    Consume the first n items from an iterator as a list,
+    and return (list, remainder_iterator).
+    """
+    head = list(islice(iterator, n))
+    return head, iterator
 
 # --- Main streaming pipeline -------------------------------------------------
 
@@ -205,35 +228,18 @@ def stream_to_ipa_corpus(
     print(f"Done. {total_written} sentences written, {failed} failed.")
     return total_written, failed
 
+# --- Main local shard-based pipeline -----------------------------------------------
 
-def _process_and_write_batch(batch, tokenizer, out_f, total_written, failed):
-    """Phonemize a batch and write each result as a JSONL line."""
-    for sentence in batch:
-        try:
-            ids = tokenizer.encode(sentence, phonemize, add_sos=True, add_eos=True)
-            out_f.write(json.dumps({
-                "text": sentence,
-                "ids": ids,
-            }) + "\n")
-            total_written += 1
-        except Exception as e:
-            print(f"  Warning: failed on sentence: {e}")
-            failed += 1
-    return total_written, failed
+def process_shard(
+    shard_path: str,
+    output_path: str,
+    start_sentence: int = 0,
+    max_sentences: Optional[int] = None,
+    batch_size: int = 256,
+    vocab_warmup_sentences: int = 0,  # zero to skip vocab building
+    save_vocab_path: str = "test_phoneme_vocab.json",
+    ):
 
-
-def _tee_n(iterator: Iterator, n: int):
-    """
-    Consume the first n items from an iterator as a list,
-    and return (list, remainder_iterator).
-    """
-    head = list(islice(iterator, n))
-    return head, iterator
-
-IN_DIR = Path("data/raw/wikipedia_raw") / SNAPSHOT
-OUT_DIR = Path("data/wikipedia_ipa/ipa_shards"); OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-def process_shard(shard_path):
     out = OUT_DIR / (shard_path.stem + ".npy")
     if out.exists():
         return out.name, "skipped"
@@ -255,12 +261,16 @@ def process_shard(shard_path):
 
 # --- Entry point -------------------------------------------------------------
 if __name__ == "__main__":
+
+    IN_DIR = Path("data/raw/wikipedia_raw") / SNAPSHOT
+    OUT_DIR = Path("data/wikipedia_ipa/ipa_shards"); OUT_DIR.mkdir(parents=True, exist_ok=True)
+
     shards = sorted(IN_DIR.glob("*.parquet"))
     with Pool(processes=8) as pool:
         for name, status in pool.imap_unordered(process_shard, shards):
             print(name, status)
 
-# Old version, which used streaming rather than locally saved shards to run the transcription
+# Old version, which used the streaming pipeline rather than locally saved shards to run the transcription
 # if __name__ == "__main__":
 #     CHUNK = int(sys.argv[1]) if len(sys.argv) > 1 else 0
 #     CHUNK_SIZE = 170_000
