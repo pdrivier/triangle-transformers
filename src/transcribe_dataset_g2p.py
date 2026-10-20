@@ -1,8 +1,5 @@
-# Attempt to transcribe the HuggingFace Wikipedia corpus
-
-"""
-wikipedia_streaming.py
-Streams Wikipedia articles and feeds them into the existing IPATokenizer pipeline.
+""" 
+Grab and download Wikipedia English shards from HuggingFace
 """
 
 import json
@@ -30,7 +27,7 @@ def find_latest_snapshot(repo_path = "wikimedia/wikipedia", repo_type = "dataset
 SNAPSHOT = snapshots[0]  # swap for the newest one from the listing above
 
 local_dir = snapshot_download(
-    repo_id="wikimedia/wikipedia",
+	repo_id="wikimedia/wikipedia",
     repo_type="dataset",
     allow_patterns=f"{SNAPSHOT}/*.parquet",
     local_dir="data/raw/wikipedia_raw",
@@ -38,17 +35,9 @@ local_dir = snapshot_download(
 )
 
 
-path = hf_hub_download(
-    "wikimedia/wikipedia",
-    filename=f"{SNAPSHOT}/train-00000-of-00041.parquet",  # use the exact name from the listing
-    repo_type="dataset",
-    local_dir="data/raw/wikipedia_raw",
-)
-
-
 
 IN_DIR = Path("data/raw/wikipedia_raw") / SNAPSHOT
-OUT_DIR = Path("data/raw/ipa_shards"); OUT_DIR.mkdir(parents=True, exist_ok=True)
+OUT_DIR = Path("data/wikipedia_ipa/ipa_shards"); OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 def process_shard(shard_path):
     out = OUT_DIR / (shard_path.stem + ".npy")
